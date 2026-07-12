@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>100 Albums to Listen To</title>
+  <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+  <div id="bg"></div>
+
+  <header>
+    <div id="pbar"><div></div></div>
+    <div class="header-inner">
+      <h1>100 Albums to listen to</h1>
+      <div class="header-right">
+        <span id="progress" class="progress"></span>
+        <button id="lockBtn" class="lock-btn" hidden></button>
+      </div>
+    </div>
+    <nav id="tabs">
+      <button data-tab="today" class="tab active">Today</button>
+      <button data-tab="past" class="tab">Past</button>
+      <button data-tab="thoughts" class="tab">Thoughts</button>
+    </nav>
+  </header>
+
+  <main id="view"></main>
+
+  <footer id="modeNote"></footer>
+
+  <script src="albums.js?v=3"></script>
+  <script src="config.js?v=3"></script>
+  <script type="module" src="app.js?v=3"></script>
+</body>
+</html>
