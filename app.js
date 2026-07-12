@@ -81,7 +81,10 @@ async function makeFirestoreStore() {
   };
 }
 
-const usingFirebase = typeof FIREBASE_CONFIG !== "undefined" && !!FIREBASE_CONFIG;
+// Add ?local=1 to the URL to force browser-only storage (handy for testing
+// without touching the shared database).
+const forceLocal = new URLSearchParams(location.search).has("local");
+const usingFirebase = !forceLocal && typeof FIREBASE_CONFIG !== "undefined" && !!FIREBASE_CONFIG;
 const store = usingFirebase ? await makeFirestoreStore() : makeLocalStore();
 
 // ── Owner lock (UI gate: only you can spin and set the official rating) ─────
@@ -179,17 +182,35 @@ async function doRoll(forcedNum) {
     num = pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // Slot-machine name cycle, then reveal.
+  // Slot-machine reel of covers that eases to a stop on the winner.
   spinning = true;
   render();
-  const box = document.getElementById("spinBox");
-  const names = ALBUMS.filter(a => !rolled.has(a.num));
-  let delay = 45;
-  while (delay < 420) {
-    const a = names[Math.floor(Math.random() * names.length)];
-    if (box) box.textContent = `#${a.num} · ${a.artist} – ${a.title}`;
-    await new Promise(r => setTimeout(r, delay));
-    delay *= 1.18;
+  const stage = document.getElementById("spinStage");
+  if (stage) {
+    const decoys = ALBUMS.filter(a => !rolled.has(a.num) && a.num !== num);
+    const picks = [];
+    for (let i = 0; i < 11; i++) {
+      picks.push(decoys.length ? decoys[Math.floor(Math.random() * decoys.length)] : ALBUM_BY_NUM[num]);
+    }
+    picks.push(ALBUM_BY_NUM[num]); // reel always lands on the rolled album
+    stage.innerHTML = `<div class="reel"><div class="reel-strip" id="reelStrip">
+      ${picks.map(a => coverHTML(a, "reel-cover")).join("")}
+    </div></div>`;
+    // wait for covers (or 1.8s, whichever comes first) so the reel isn't blank
+    await Promise.race([
+      Promise.all([...stage.querySelectorAll("img")].map(i =>
+        i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; }))),
+      new Promise(r => setTimeout(r, 1800)),
+    ]);
+    const strip = document.getElementById("reelStrip");
+    const reelH = strip.parentElement.clientHeight;
+    strip.getBoundingClientRect(); // flush layout so the transition animates
+    strip.style.transform = `translateY(-${(picks.length - 1) * reelH}px)`;
+    await new Promise(r => {
+      strip.addEventListener("transitionend", r, { once: true });
+      setTimeout(r, 3200); // safety net if the event never fires
+    });
+    await new Promise(r => setTimeout(r, 350)); // a beat before the reveal
   }
   spinning = false;
 
@@ -266,7 +287,7 @@ function renderToday() {
   if (spinning) {
     return `<div class="card spin-stage">
       <h2>Rolling…</h2>
-      <div class="spin-box" id="spinBox">…</div>
+      <div id="spinStage"></div>
     </div>`;
   }
 
