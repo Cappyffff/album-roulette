@@ -50,7 +50,7 @@ same data.
          allow read, write: if true;
        }
        match /reviews/{doc} {
-         allow read, create: if true;
+         allow read, create, delete: if true;
        }
      }
    }

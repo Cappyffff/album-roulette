@@ -55,6 +55,10 @@ function makeLocalStore() {
       write("a100_reviews", [...read("a100_reviews"), { ...rv, id: String(Date.now()) }]);
       reload();
     },
+    async removeReview(id) {
+      write("a100_reviews", read("a100_reviews").filter(rv => rv.id !== id));
+      reload();
+    },
   };
 }
 
@@ -78,6 +82,7 @@ async function makeFirestoreStore() {
       await fs.updateDoc(fs.doc(db, "rolls", String(num)), { rating, comment });
     },
     async addReview(rv) { await fs.addDoc(fs.collection(db, "reviews"), rv); },
+    async removeReview(id) { await fs.deleteDoc(fs.doc(db, "reviews", id)); },
   };
 }
 
@@ -445,6 +450,7 @@ function renderThoughts() {
         <span class="who">${esc(rv.name)}</span>
         <span class="what">${esc(rv.comment || "")}</span>
         <span class="sc">${scoreHTML(rv.rating)}</span>
+        ${isOwner() ? `<button class="rev-del rev-del-t" data-id="${esc(rv.id)}" data-who="${esc(rv.name)}" title="Delete this review">✕</button>` : ""}
       </div>`).join("")}
     </div>`;
   }).join("");
@@ -469,6 +475,7 @@ function openAlbumModal(num) {
   const reviews = state.reviews
     .filter(rv => rv.num === num)
     .sort((x, y) => (x.createdAt || "").localeCompare(y.createdAt || ""));
+  const owner = isOwner();
 
   const overlay = document.createElement("div");
   overlay.id = "albumModal";
@@ -482,7 +489,13 @@ function openAlbumModal(num) {
       ${roll ? `<div class="modal-day">Day ${roll.seq}</div>` : ""}
       ${roll && isRated(roll) ? `
         <div class="modal-score">${scoreHTML(roll.rating)}</div>
-        ${roll.comment ? `<div class="modal-comment">“${esc(roll.comment)}”</div>` : ""}`
+        ${roll.comment ? `<div class="modal-comment">“${esc(roll.comment)}”</div>` : ""}
+        ${owner ? `<button class="secondary modal-edit" id="modalEditBtn">✎ Edit rating</button>
+        <div class="rate-form modal-edit-form" id="modalEditForm" hidden>
+          ${ratingInputs("mRange", "mNum", roll.rating)}
+          <textarea id="mComment" placeholder="Your thoughts on the album…">${esc(roll.comment || "")}</textarea>
+          <button class="primary" id="mSave">Save changes</button>
+        </div>` : ""}`
         : roll ? `<div class="modal-score modal-pending">currently listening…</div>`
         : `<div class="modal-score modal-unrolled">not rolled yet</div>`}
       <div class="modal-reviews">
@@ -490,12 +503,35 @@ function openAlbumModal(num) {
             <span class="who">${esc(rv.name)}</span>
             <span class="what">${esc(rv.comment || "")}</span>
             <span class="sc">${scoreHTML(rv.rating)}</span>
+            ${owner ? `<button class="rev-del" data-id="${esc(rv.id)}" data-who="${esc(rv.name)}" title="Delete this review">✕</button>` : ""}
           </div>`).join("")
         : `<p class="hint">No reviews for this one yet.</p>`}
       </div>
     </div>`;
   overlay.onclick = (e) => { if (e.target === overlay) closeAlbumModal(); };
   overlay.querySelector(".modal-close").onclick = closeAlbumModal;
+
+  const editBtn = overlay.querySelector("#modalEditBtn");
+  if (editBtn) {
+    const form = overlay.querySelector("#modalEditForm");
+    editBtn.onclick = () => { form.hidden = !form.hidden; };
+    const range = overlay.querySelector("#mRange");
+    const numIn = overlay.querySelector("#mNum");
+    range.oninput = () => { numIn.value = range.value; };
+    numIn.oninput = () => { range.value = Math.max(0, Math.min(100, +numIn.value || 0)); };
+    overlay.querySelector("#mSave").onclick = async () => {
+      const rating = parseInt(numIn.value, 10);
+      if (!Number.isInteger(rating) || rating < 0 || rating > 100) return alert("Rating must be 0–100.");
+      await store.rateRoll(num, rating, overlay.querySelector("#mComment").value.trim());
+      setTimeout(() => openAlbumModal(num), 150);
+    };
+  }
+  overlay.querySelectorAll(".rev-del").forEach(b => b.onclick = async () => {
+    if (!confirm(`Delete ${b.dataset.who}'s review?`)) return;
+    await store.removeReview(b.dataset.id);
+    setTimeout(() => openAlbumModal(num), 150);
+  });
+
   document.body.appendChild(overlay);
   document.addEventListener("keydown", escToClose);
 }
@@ -524,6 +560,10 @@ function wire() {
   on("revBtn", submitReview);
   document.querySelectorAll(".subtab").forEach(b => b.onclick = () => { pastTab = b.dataset.subtab; render(); });
   document.querySelectorAll(".chart-cell").forEach(c => c.onclick = () => openAlbumModal(+c.dataset.num));
+  document.querySelectorAll(".rev-del-t").forEach(b => b.onclick = async () => {
+    if (!confirm(`Delete ${b.dataset.who}'s review?`)) return;
+    await store.removeReview(b.dataset.id);
+  });
 
   const syncPair = (rangeId, numId) => {
     const range = document.getElementById(rangeId);

@@ -314,6 +314,14 @@ div.modal-cover { display: flex; }
 .modal-comment { font-size: 0.9rem; opacity: 0.85; margin-top: 6px; white-space: pre-wrap; }
 .modal-reviews { margin-top: 14px; text-align: left; }
 .modal-reviews .review { margin-left: 0; }
+.modal-edit { margin-top: 10px; }
+.modal-edit-form { margin: 12px auto 0; text-align: left; }
+
+.rev-del {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 0.8rem; padding: 2px 6px; border-radius: 6px; flex-shrink: 0;
+}
+.rev-del:hover { color: var(--bad); background: rgba(224, 108, 92, 0.12); }
 
 /* ── Thoughts (everyone's reviews) ── */
 .album-section { margin-bottom: 22px; }
