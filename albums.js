@@ -100,6 +100,6 @@ const ALBUMS = [
   { num: 96, artist: "Emmylou Harris", title: "Wrecking Ball", cover: "https://is1-ssl.mzstatic.com/image/thumb/Music6/v4/bf/86/50/bf86508b-8390-fb23-eb78-eea999e32c07/075597955699.jpg/600x600bb.jpg", colors: ["#ffffff", "#71706e"] },
   { num: 97, artist: "Archie Shepp", title: "Blasé", cover: "https://cdn-images.dzcdn.net/images/cover/2bb51eccd6b3b2d38df0db5e5bc545a7/1000x1000-000000-80-0-0.jpg", colors: ["#ffffff", "#6c5652"] },
   { num: 98, artist: "Credit Electric", title: "SALVATION", cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/98/3c/48/983c483c-2b76-05d9-ce50-351fa5f9c8e4/artwork.jpg/600x600bb.jpg", colors: ["#ffffff", "#a8aca0"] },
-  { num: 99, artist: "Notorious B.I.G.", title: "Ready to Die", cover: "https://coverartarchive.org/release-group/5afcfeac-118a-35e6-af0d-35ec9003354d/front-500", colors: ["#ffffff", "#5e493d"] },
+  { num: 99, artist: "Notorious B.I.G.", title: "Ready to Die", cover: "https://cdn-images.dzcdn.net/images/cover/7143c2cd04a78c9c969d230c69465a03/1000x1000-000000-80-0-0.jpg", colors: ["#ffffff", "#694e45"] },
   { num: 100, artist: "The Beatles", title: "The White Album", cover: "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/fa/5b/89/fa5b898d-bad6-e053-4195-260e5c74f2bb/00602567725466.rgb.jpg/600x600bb.jpg", colors: ["#ffffff", "#dbd8d7"] },
 ];
