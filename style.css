@@ -163,6 +163,7 @@ input[type="number"], input[type="text"], textarea {
 textarea { width: 100%; min-height: 90px; resize: vertical; font-family: inherit; }
 input:focus, textarea:focus { outline: 1px solid var(--accent); }
 input[type="range"] { accent-color: var(--accent); }
+input[type="range"].unset { opacity: 0.4; }
 
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 

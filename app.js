@@ -275,10 +275,11 @@ function flashHTML() {
   return `<p class="${f.kind}">${esc(f.text)}</p>`;
 }
 
-function ratingInputs(rangeId, numId, value = 75) {
+function ratingInputs(rangeId, numId, value = null) {
+  const has = value !== null && value !== undefined;
   return `<div class="rate-row">
-    <input type="range" id="${rangeId}" min="0" max="100" value="${value}">
-    <input type="number" id="${numId}" min="0" max="100" value="${value}">
+    <input type="range" id="${rangeId}" min="0" max="100" value="${has ? value : 50}" class="${has ? "" : "unset"}">
+    <input type="number" id="${numId}" min="0" max="100" placeholder="?" ${has ? `value="${value}"` : ""}>
   </div>`;
 }
 
@@ -569,8 +570,11 @@ function wire() {
     const range = document.getElementById(rangeId);
     const numIn = document.getElementById(numId);
     if (range && numIn) {
-      range.oninput = () => { numIn.value = range.value; };
-      numIn.oninput = () => { range.value = Math.max(0, Math.min(100, +numIn.value || 0)); };
+      range.oninput = () => { numIn.value = range.value; range.classList.remove("unset"); };
+      numIn.oninput = () => {
+        range.value = Math.max(0, Math.min(100, +numIn.value || 0));
+        range.classList.remove("unset");
+      };
     }
   };
   syncPair("rateRange", "rateNum");
