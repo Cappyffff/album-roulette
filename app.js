@@ -19,6 +19,7 @@ const state = { rolls: [], reviews: [], ready: false };
 let tab = "today";
 let pastTab = "history";
 let spinning = false;
+let showRateForm = false; // pending album: rating form stays hidden until "Rate it"
 let flash = null; // one-shot {kind, text} message shown after re-render
 
 // ── Storage backends ─────────────────────────────────────────────────────────
@@ -59,6 +60,11 @@ function makeLocalStore() {
       write("a100_reviews", read("a100_reviews").filter(rv => rv.id !== id));
       reload();
     },
+    async importData(data) {
+      write("a100_rolls", data.rolls);
+      write("a100_reviews", data.reviews.map((rv, i) => ({ ...rv, id: rv.id || String(Date.now() + i) })));
+      reload();
+    },
   };
 }
 
@@ -83,6 +89,16 @@ async function makeFirestoreStore() {
     },
     async addReview(rv) { await fs.addDoc(fs.collection(db, "reviews"), rv); },
     async removeReview(id) { await fs.deleteDoc(fs.doc(db, "reviews", id)); },
+    async importData(data) {
+      await Promise.all([
+        ...data.rolls.map(r => fs.setDoc(fs.doc(db, "rolls", String(r.num)), r)),
+        ...data.reviews.map(rv => {
+          const { id, ...rest } = rv;
+          return id ? fs.setDoc(fs.doc(db, "reviews", id), rest)
+                    : fs.addDoc(fs.collection(db, "reviews"), rest);
+        }),
+      ]);
+    },
   };
 }
 
@@ -233,6 +249,7 @@ async function saveRating() {
   }
   const comment = document.getElementById("rateComment").value.trim();
   await store.rateRoll(p.num, rating, comment);
+  showRateForm = false;
   flash = { kind: "ok", text: "Saved. See you tomorrow 🎧" };
   render();
 }
@@ -242,6 +259,31 @@ async function importSeeds() {
     await store.addRoll({ ...SEED_ROLLS[i], comment: "", rolledAt: null, seq: i + 1 });
   }
   flash = { kind: "ok", text: "Imported your first 7 albums." };
+  render();
+}
+
+function downloadBackup() {
+  const data = { exportedAt: new Date().toISOString(), rolls: state.rolls, reviews: state.reviews };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `100-albums-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  flash = { kind: "ok", text: "Backup downloaded — keep it somewhere safe." };
+  render();
+}
+
+async function importBackup(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data.rolls) || !Array.isArray(data.reviews)) throw new Error("wrong shape");
+    if (!confirm(`Restore ${data.rolls.length} rolls and ${data.reviews.length} reviews from this backup?`)) return;
+    await store.importData(data);
+    flash = { kind: "ok", text: "Backup restored." };
+  } catch {
+    flash = { kind: "error", text: "That file doesn't look like a valid backup." };
+  }
   render();
 }
 
@@ -300,12 +342,17 @@ function renderToday() {
   if (p) {
     // An album is rolled and waiting for the official rating.
     const a = ALBUM_BY_NUM[p.num];
-    const rateUI = owner ? `
+    const rateUI = !owner
+      ? `<div class="listening">listening…</div>
+         <p class="hint">Official rating still cooking — add your own take below.</p>`
+      : showRateForm ? `
       <div class="rate-form">
         ${ratingInputs("rateRange", "rateNum")}
         <textarea id="rateComment" placeholder="Your thoughts on the album…"></textarea>
         <button class="primary" id="saveRatingBtn">Save rating</button>
-      </div>` : `<p class="hint">Official rating still cooking — add your own take below.</p>`;
+      </div>` : `
+      <div class="listening">listening…</div>
+      <button class="primary" id="rateNowBtn">Rate this album</button>`;
     const glow = albumColors(a)[0];
     html += `<div class="card">
       <h2>Today's album</h2>
@@ -320,6 +367,15 @@ function renderToday() {
       </div>
       ${flashHTML()}
     </div>`;
+  } else if (rolled.size === 100) {
+    // The chart is complete — replace the spin card with the finale.
+    const top3 = state.rolls.filter(isRated).sort((a, b) => b.rating - a.rating || a.seq - b.seq).slice(0, 3);
+    html += `<div class="card" style="text-align:center">
+      <h2>🏆 All 100 albums, done.</h2>
+      <p class="hint" style="margin-bottom:14px">The chart is complete. The final podium:</p>
+      <div class="list" style="text-align:left">${top3.map((r, i) => entryHTML(r, { rank: i + 1 })).join("")}</div>
+      ${flashHTML()}
+    </div>`;
   } else if (owner) {
     const remaining = 100 - rolled.size;
     html += `<div class="card spin-stage">
@@ -329,7 +385,6 @@ function renderToday() {
         <input type="number" id="manualNum" min="1" max="100" placeholder="1–100" style="width:90px">
         <button class="secondary" id="manualBtn">Roll this number</button>
       </div>
-      <p class="hint">Manual entry is for when someone gives you a number.</p>
       ${state.rolls.length === 0 ? `<button class="secondary" id="seedBtn" style="margin-top:12px">Import my first 7 albums</button>` : ""}
       ${flashHTML()}
     </div>`;
@@ -375,20 +430,47 @@ function renderToday() {
 }
 
 function renderPast() {
-  const sub = { history: renderHistory, leaderboard: renderLeaderboard, chart: renderChart }[pastTab];
+  const sub = { history: renderHistory, leaderboard: renderLeaderboard, chart: renderChart, stats: renderStats }[pastTab];
   return `
     <div class="subtabs">
-      ${["history", "leaderboard", "chart"].map(t =>
+      ${["history", "leaderboard", "chart", "stats"].map(t =>
         `<button class="subtab ${t === pastTab ? "active" : ""}" data-subtab="${t}">
-          ${{ history: "History", leaderboard: "Leaderboard", chart: "The Chart" }[t]}
+          ${{ history: "History", leaderboard: "Leaderboard", chart: "The Chart", stats: "Stats" }[t]}
         </button>`).join("")}
     </div>
-    ${sub()}`;
+    ${sub()}
+    ${isOwner() ? `<div class="backup-row">
+      <button class="secondary" id="exportBtn">⬇︎ Backup data</button>
+      <button class="secondary" id="importBtn">⬆︎ Restore backup</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>${flashHTML()}` : ""}`;
+}
+
+function renderStats() {
+  const done = state.rolls.filter(isRated);
+  if (!done.length) return `<div class="card"><p class="hint">No finished albums yet.</p></div>`;
+  const avg = done.reduce((s, r) => s + r.rating, 0) / done.length;
+  const best = [...done].sort((a, b) => b.rating - a.rating || a.seq - b.seq)[0];
+  const worst = [...done].sort((a, b) => a.rating - b.rating || a.seq - b.seq)[0];
+  const counts = {};
+  state.reviews.forEach(rv => { counts[rv.name] = (counts[rv.name] || 0) + 1; });
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  return `
+    <div class="stats-grid">
+      <div class="stat"><div class="sv">${done.length}<span style="font-size:0.6em;opacity:0.7">/100</span></div><div class="sl">albums finished</div></div>
+      <div class="stat"><div class="sv" style="color:${scoreColor(avg)}">${avg.toFixed(1)}</div><div class="sl">average score</div></div>
+      <div class="stat"><div class="sv">${state.reviews.length}</div><div class="sl">friend reviews</div></div>
+      <div class="stat"><div class="sv sv-text">${top ? esc(top[0]) : "—"}</div><div class="sl">top reviewer${top ? ` (${top[1]})` : ""}</div></div>
+    </div>
+    <div class="stats-h">Highest rated</div>
+    <div class="list">${entryHTML(best)}</div>
+    <div class="stats-h">Lowest rated</div>
+    <div class="list">${entryHTML(worst)}</div>`;
 }
 
 function entryHTML(r, { rank } = {}) {
   const a = ALBUM_BY_NUM[r.num];
-  return `<div class="entry ${rank !== undefined && rank <= 3 ? "podium-" + rank : ""}">
+  return `<div class="entry ${rank !== undefined && rank <= 3 ? "podium-" + rank : ""}" data-num="${a.num}" title="Tap for details & everyone's reviews">
     ${rank !== undefined ? `<div class="rank ${rank <= 3 ? "top" : ""}">${rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : rank}</div>` : ""}
     ${coverHTML(a, "thumb")}
     <div class="info">
@@ -427,37 +509,7 @@ function renderChart() {
   </div>`;
 }
 
-function renderThoughts() {
-  if (!state.reviews.length) {
-    return `<div class="card"><h2>Thoughts</h2>
-      <p class="hint">No reviews yet — be the first! Add yours from the Today tab.</p></div>`;
-  }
-  const byNum = {};
-  state.reviews.forEach(rv => (byNum[rv.num] ||= []).push(rv));
-  const rollsDesc = [...state.rolls].sort((a, b) => b.seq - a.seq).filter(r => byNum[r.num]);
-  return rollsDesc.map(r => {
-    const a = ALBUM_BY_NUM[r.num];
-    const reviews = byNum[r.num].sort((x, y) => (x.createdAt || "").localeCompare(y.createdAt || ""));
-    return `<div class="album-section">
-      <div class="head">
-        ${coverHTML(a, "thumb")}
-        <div style="flex:1;min-width:0">
-          <div class="t">#${a.num} · ${esc(a.title)}</div>
-          <div class="a">${esc(a.artist)}</div>
-        </div>
-        ${isRated(r) ? `<div class="score" style="font-weight:900">${scoreHTML(r.rating)}</div>` : ""}
-      </div>
-      ${reviews.map(rv => `<div class="review">
-        <span class="who">${esc(rv.name)}</span>
-        <span class="what">${esc(rv.comment || "")}</span>
-        <span class="sc">${scoreHTML(rv.rating)}</span>
-        ${isOwner() ? `<button class="rev-del rev-del-t" data-id="${esc(rv.id)}" data-who="${esc(rv.name)}" title="Delete this review">✕</button>` : ""}
-      </div>`).join("")}
-    </div>`;
-  }).join("");
-}
-
-// ── Album popup (opened by tapping a chart tile) ─────────────────────────────
+// ── Album popup (opened by tapping a chart tile or a history/leaderboard row) ─
 // Deliberately bare-bones markup: the classes below (.modal-*) are hooks for
 // styling once the design is ready.
 
@@ -496,9 +548,11 @@ function openAlbumModal(num) {
           ${ratingInputs("mRange", "mNum", roll.rating)}
           <textarea id="mComment" placeholder="Your thoughts on the album…">${esc(roll.comment || "")}</textarea>
           <button class="primary" id="mSave">Save changes</button>
-        </div>` : ""}`
+        </div>` : ""}
+        <button class="secondary modal-edit" id="modalShareBtn">📤 Share</button>`
         : roll ? `<div class="modal-score modal-pending">currently listening…</div>`
         : `<div class="modal-score modal-unrolled">not rolled yet</div>`}
+      ${reviews.length ? `<div class="modal-avg">friends' average: ${scoreHTML(Math.round(reviews.reduce((s, rv) => s + rv.rating, 0) / reviews.length))} across ${reviews.length} review${reviews.length > 1 ? "s" : ""}</div>` : ""}
       <div class="modal-reviews">
         ${reviews.length ? reviews.map(rv => `<div class="review">
             <span class="who">${esc(rv.name)}</span>
@@ -533,6 +587,21 @@ function openAlbumModal(num) {
     setTimeout(() => openAlbumModal(num), 150);
   });
 
+  const shareBtn = overlay.querySelector("#modalShareBtn");
+  if (shareBtn) shareBtn.onclick = async () => {
+    const text = `Day ${roll.seq} · ${a.title} — ${a.artist}: ${roll.rating}/100 🎧`;
+    const url = location.origin + location.pathname;
+    try {
+      if (navigator.share) {
+        await navigator.share({ text, url });
+      } else {
+        await navigator.clipboard.writeText(`${text}\n${url}`);
+        shareBtn.textContent = "Copied!";
+        setTimeout(() => { shareBtn.textContent = "📤 Share"; }, 1500);
+      }
+    } catch { /* user closed the share sheet */ }
+  };
+
   document.body.appendChild(overlay);
   document.addEventListener("keydown", escToClose);
 }
@@ -546,7 +615,7 @@ function render() {
 
   view.innerHTML = !state.ready
     ? `<div class="card"><p class="hint">Loading…</p></div>`
-    : { today: renderToday, past: renderPast, thoughts: renderThoughts }[tab]();
+    : { today: renderToday, past: renderPast }[tab]();
 
   wire();
   updateBackground();
@@ -557,14 +626,19 @@ function wire() {
   on("spinBtn", () => doRoll());
   on("manualBtn", () => doRoll(parseInt(document.getElementById("manualNum").value, 10)));
   on("seedBtn", importSeeds);
+  on("rateNowBtn", () => { showRateForm = true; render(); });
   on("saveRatingBtn", saveRating);
+  on("exportBtn", downloadBackup);
+  const importInput = document.getElementById("importFile");
+  on("importBtn", () => importInput.click());
+  if (importInput) importInput.onchange = () => {
+    if (importInput.files[0]) importBackup(importInput.files[0]);
+    importInput.value = "";
+  };
   on("revBtn", submitReview);
   document.querySelectorAll(".subtab").forEach(b => b.onclick = () => { pastTab = b.dataset.subtab; render(); });
   document.querySelectorAll(".chart-cell").forEach(c => c.onclick = () => openAlbumModal(+c.dataset.num));
-  document.querySelectorAll(".rev-del-t").forEach(b => b.onclick = async () => {
-    if (!confirm(`Delete ${b.dataset.who}'s review?`)) return;
-    await store.removeReview(b.dataset.id);
-  });
+  document.querySelectorAll(".entry[data-num]").forEach(e => e.onclick = () => openAlbumModal(+e.dataset.num));
 
   const syncPair = (rangeId, numId) => {
     const range = document.getElementById(rangeId);

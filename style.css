@@ -204,6 +204,13 @@ input[type="range"].unset { opacity: 0.4; }
 .album-name .a { color: var(--muted); margin-top: 2px; }
 .album-name .n { color: var(--accent); font-weight: 800; }
 
+.listening {
+  color: var(--muted); font-size: 0.95rem; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
 .rate-form { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 12px; }
 .rate-row { display: flex; gap: 12px; align-items: center; }
 .rate-row input[type="range"] { flex: 1; padding: 0; }
@@ -315,8 +322,31 @@ div.modal-cover { display: flex; }
 .modal-comment { font-size: 0.9rem; opacity: 0.85; margin-top: 6px; white-space: pre-wrap; }
 .modal-reviews { margin-top: 14px; text-align: left; }
 .modal-reviews .review { margin-left: 0; }
-.modal-edit { margin-top: 10px; }
+.modal-edit { margin-top: 10px; margin-left: 4px; margin-right: 4px; }
 .modal-edit-form { margin: 12px auto 0; text-align: left; }
+.modal-avg { margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
+
+/* ── Stats ── */
+.stats-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px; margin-bottom: 6px;
+}
+.stat {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border: 1px solid var(--glass-border); border-radius: 14px;
+  padding: 16px 10px; text-align: center;
+  animation: rise 0.45s ease both;
+}
+.stat .sv {
+  font-family: "Space Grotesk", sans-serif; font-size: 1.5rem; font-weight: 700;
+  color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.stat .sv.sv-text { font-size: 1.1rem; line-height: 1.9; }
+.stat .sl { color: var(--muted); font-size: 0.72rem; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+.stats-h { margin: 18px 0 8px; font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+.backup-row { display: flex; gap: 10px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
 
 .rev-del {
   background: none; border: none; color: var(--muted); cursor: pointer;
