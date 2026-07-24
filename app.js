@@ -113,22 +113,96 @@ const store = usingFirebase ? await makeFirestoreStore() : makeLocalStore();
 const lockEnabled = typeof OWNER_CODE !== "undefined" && OWNER_CODE !== "";
 const isOwner = () => !lockEnabled || localStorage.getItem("a100_owner") === "1";
 
+// A number the owner queued: the next spin lands on it instead of random.
+const getQueued = () => {
+  const n = parseInt(localStorage.getItem("a100_next"), 10);
+  return Number.isInteger(n) && n >= 1 && n <= 100 ? n : null;
+};
+const setQueued = (n) => n === null
+  ? localStorage.removeItem("a100_next")
+  : localStorage.setItem("a100_next", String(n));
+
 const lockBtn = document.getElementById("lockBtn");
+const syncLockBtn = () => { lockBtn.textContent = isOwner() ? "🔓" : "🔒"; };
+
+function closeOwnerMenu() {
+  const m = document.getElementById("ownerMenu");
+  if (m) m.remove();
+  document.removeEventListener("click", ownerMenuOutside);
+}
+function ownerMenuOutside(e) {
+  const m = document.getElementById("ownerMenu");
+  if (m && !m.contains(e.target) && e.target !== lockBtn) closeOwnerMenu();
+}
+
+function openOwnerMenu() {
+  closeOwnerMenu();
+  const q = getQueued();
+  const menu = document.createElement("div");
+  menu.id = "ownerMenu";
+  menu.innerHTML = `
+    <div class="om-title">Owner tools</div>
+    <div class="om-row">
+      <input type="number" id="omNum" min="1" max="100" placeholder="1–100">
+      <button class="secondary" id="omQueue">Set next roll</button>
+    </div>
+    ${q ? `<div class="om-note">Next roll: #${q} · ${esc(ALBUM_BY_NUM[q].title)} <button class="om-x" id="omClear">clear</button></div>`
+        : `<div class="om-note om-muted">Next spin is random unless you set a number.</div>`}
+    <button class="secondary om-full" id="omExport">⬇︎ Backup data</button>
+    <button class="secondary om-full" id="omImport">⬆︎ Restore backup</button>
+    <input type="file" id="omImportFile" accept=".json,application/json" hidden>
+    <button class="secondary om-full" id="omLock">🔒 Lock owner mode</button>`;
+  document.body.appendChild(menu);
+
+  menu.querySelector("#omQueue").onclick = () => {
+    const n = parseInt(menu.querySelector("#omNum").value, 10);
+    if (!Number.isInteger(n) || n < 1 || n > 100) return alert("Enter a whole number between 1 and 100.");
+    if (rolledSet().has(n)) {
+      const a = ALBUM_BY_NUM[n];
+      return alert(`#${n} (${a.artist} – ${a.title}) was already rolled — pick another.`);
+    }
+    setQueued(n);
+    openOwnerMenu(); // refresh the menu to show it
+    render();
+  };
+  const clearBtn = menu.querySelector("#omClear");
+  if (clearBtn) clearBtn.onclick = () => { setQueued(null); openOwnerMenu(); render(); };
+  menu.querySelector("#omExport").onclick = () => { closeOwnerMenu(); downloadBackup(); };
+  const fileInput = menu.querySelector("#omImportFile");
+  menu.querySelector("#omImport").onclick = () => fileInput.click();
+  fileInput.onchange = () => {
+    if (fileInput.files[0]) { closeOwnerMenu(); importBackup(fileInput.files[0]); }
+    fileInput.value = "";
+  };
+  menu.querySelector("#omLock").onclick = () => {
+    closeOwnerMenu();
+    localStorage.removeItem("a100_owner");
+    syncLockBtn();
+    render();
+  };
+
+  setTimeout(() => document.addEventListener("click", ownerMenuOutside), 0);
+}
+
 if (lockEnabled) {
   lockBtn.hidden = false;
-  const syncLockBtn = () => { lockBtn.textContent = isOwner() ? "🔓" : "🔒"; };
   syncLockBtn();
   lockBtn.onclick = () => {
     if (isOwner()) {
-      localStorage.removeItem("a100_owner");
+      openOwnerMenu();
     } else {
       const code = prompt("Enter owner code:");
       if (code === OWNER_CODE) localStorage.setItem("a100_owner", "1");
       else if (code !== null) alert("Wrong code");
+      syncLockBtn();
+      render();
     }
-    syncLockBtn();
-    render();
   };
+} else {
+  // No owner code configured: still show the menu (everyone is "owner").
+  lockBtn.hidden = false;
+  lockBtn.textContent = "⚙︎";
+  lockBtn.onclick = openOwnerMenu;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -195,43 +269,57 @@ async function doRoll(forcedNum) {
       return render();
     }
   } else {
-    const pool = ALBUMS.filter(a => !rolled.has(a.num)).map(a => a.num);
-    if (!pool.length) {
-      flash = { kind: "ok", text: "All 100 albums are done. Incredible." };
-      return render();
+    const queued = getQueued();
+    setQueued(null); // one-shot: consumed (or dropped, if stale) on this spin
+    if (queued !== null && !rolled.has(queued)) {
+      num = queued;
+    } else {
+      const pool = ALBUMS.filter(a => !rolled.has(a.num)).map(a => a.num);
+      if (!pool.length) {
+        flash = { kind: "ok", text: "All 100 albums are done. Incredible." };
+        return render();
+      }
+      num = pool[Math.floor(Math.random() * pool.length)];
     }
-    num = pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // Slot-machine reel of covers that eases to a stop on the winner.
+  // Rapid-fire cover shuffle that slows to a stop on the winner. A single
+  // image element swapping between preloaded full-res covers — far cheaper to
+  // render than the old sliding reel, with no downscaled images.
   spinning = true;
   render();
   const stage = document.getElementById("spinStage");
   if (stage) {
-    const decoys = ALBUMS.filter(a => !rolled.has(a.num) && a.num !== num);
-    const picks = [];
-    for (let i = 0; i < 11; i++) {
-      picks.push(decoys.length ? decoys[Math.floor(Math.random() * decoys.length)] : ALBUM_BY_NUM[num]);
-    }
-    picks.push(ALBUM_BY_NUM[num]); // reel always lands on the rolled album
-    stage.innerHTML = `<div class="reel"><div class="reel-strip" id="reelStrip">
-      ${picks.map(a => coverHTML(a, "reel-cover")).join("")}
-    </div></div>`;
-    // wait for covers (or 1.8s, whichever comes first) so the reel isn't blank
-    await Promise.race([
-      Promise.all([...stage.querySelectorAll("img")].map(i =>
-        i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; }))),
-      new Promise(r => setTimeout(r, 1800)),
-    ]);
-    const strip = document.getElementById("reelStrip");
-    const reelH = strip.parentElement.clientHeight;
-    strip.getBoundingClientRect(); // flush layout so the transition animates
-    strip.style.transform = `translateY(-${(picks.length - 1) * reelH}px)`;
-    await new Promise(r => {
-      strip.addEventListener("transitionend", r, { once: true });
-      setTimeout(r, 3200); // safety net if the event never fires
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+    const preload = (a) => new Promise(res => {
+      const i = new Image();
+      i.onload = () => res(a);
+      i.onerror = () => res(null);
+      i.src = a.cover;
     });
-    await new Promise(r => setTimeout(r, 350)); // a beat before the reveal
+    const decoyPool = ALBUMS.filter(a => !rolled.has(a.num) && a.num !== num);
+    const picks = [];
+    while (picks.length < 10 && decoyPool.length) {
+      picks.push(decoyPool.splice(Math.floor(Math.random() * decoyPool.length), 1)[0]);
+    }
+    const winner = ALBUM_BY_NUM[num];
+    const winnerReady = preload(winner);
+    // only shuffle covers that actually finished loading — nothing flashes blank
+    const loaded = (await Promise.all(picks.map(a => Promise.race([preload(a), timeout(2200)]))))
+      .filter(Boolean);
+    stage.innerHTML = `<div class="flash-box" id="flashBox"><img id="flashImg" alt=""></div>`;
+    const img = document.getElementById("flashImg");
+    let delay = 90;
+    while (delay < 480 && loaded.length) {
+      img.src = loaded[Math.floor(Math.random() * loaded.length)].cover;
+      await sleep(delay);
+      delay *= 1.17;
+    }
+    await Promise.race([winnerReady, timeout(2500)]);
+    img.src = winner.cover;
+    document.getElementById("flashBox").classList.add("flash-final");
+    await sleep(700);
   }
   spinning = false;
 
@@ -381,10 +469,8 @@ function renderToday() {
     html += `<div class="card spin-stage">
       <h2>Roll today's album</h2>
       <button class="primary big-spin" id="spinBtn" ${remaining ? "" : "disabled"}>🎲 Spin (${remaining} left)</button>
-      <div class="row" style="justify-content:center">
-        <input type="number" id="manualNum" min="1" max="100" placeholder="1–100" style="width:90px">
-        <button class="secondary" id="manualBtn">Roll this number</button>
-      </div>
+      ${(() => { const q = getQueued(); return q && !rolled.has(q)
+        ? `<p class="hint">Next roll is set to #${q} · ${esc(ALBUM_BY_NUM[q].title)}</p>` : ""; })()}
       ${state.rolls.length === 0 ? `<button class="secondary" id="seedBtn" style="margin-top:12px">Import my first 7 albums</button>` : ""}
       ${flashHTML()}
     </div>`;
@@ -439,11 +525,7 @@ function renderPast() {
         </button>`).join("")}
     </div>
     ${sub()}
-    ${isOwner() ? `<div class="backup-row">
-      <button class="secondary" id="exportBtn">⬇︎ Backup data</button>
-      <button class="secondary" id="importBtn">⬆︎ Restore backup</button>
-      <input type="file" id="importFile" accept=".json,application/json" hidden>
-    </div>${flashHTML()}` : ""}`;
+    ${flashHTML()}`;
 }
 
 function renderStats() {
@@ -492,7 +574,31 @@ function renderHistory() {
 function renderLeaderboard() {
   const rated = state.rolls.filter(isRated).sort((a, b) => b.rating - a.rating || a.seq - b.seq);
   if (!rated.length) return `<div class="card"><p class="hint">No ratings yet.</p></div>`;
-  return `<div class="list">${rated.map((r, i) => entryHTML(r, { rank: i + 1 })).join("")}</div>`;
+  return `<div class="list">${rated.map((r, i) => entryHTML(r, { rank: i + 1 })).join("")}</div>
+    <div class="share-row"><button class="secondary" id="shareBoardBtn">📤 Share leaderboard</button></div>`;
+}
+
+async function shareLeaderboard() {
+  const rated = state.rolls.filter(isRated).sort((a, b) => b.rating - a.rating || a.seq - b.seq);
+  const medal = (i) => i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`;
+  const lines = rated.map((r, i) => {
+    const a = ALBUM_BY_NUM[r.num];
+    return `${medal(i)} ${a.title} — ${a.artist}: ${r.rating}/100`;
+  });
+  const text = `🎧 100 Albums leaderboard (${rated.length}/100 done)\n${lines.join("\n")}`;
+  const url = location.origin + location.pathname;
+  const btn = document.getElementById("shareBoardBtn");
+  try {
+    if (navigator.share) {
+      await navigator.share({ text: `${text}\n${url}` });
+    } else {
+      await navigator.clipboard.writeText(`${text}\n${url}`);
+      if (btn) {
+        btn.textContent = "Copied!";
+        setTimeout(() => { btn.textContent = "📤 Share leaderboard"; }, 1500);
+      }
+    }
+  } catch { /* user closed the share sheet */ }
 }
 
 function renderChart() {
@@ -624,17 +730,10 @@ function render() {
 function wire() {
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
   on("spinBtn", () => doRoll());
-  on("manualBtn", () => doRoll(parseInt(document.getElementById("manualNum").value, 10)));
   on("seedBtn", importSeeds);
   on("rateNowBtn", () => { showRateForm = true; render(); });
   on("saveRatingBtn", saveRating);
-  on("exportBtn", downloadBackup);
-  const importInput = document.getElementById("importFile");
-  on("importBtn", () => importInput.click());
-  if (importInput) importInput.onchange = () => {
-    if (importInput.files[0]) importBackup(importInput.files[0]);
-    importInput.value = "";
-  };
+  on("shareBoardBtn", shareLeaderboard);
   on("revBtn", submitReview);
   document.querySelectorAll(".subtab").forEach(b => b.onclick = () => { pastTab = b.dataset.subtab; render(); });
   document.querySelectorAll(".chart-cell").forEach(c => c.onclick = () => openAlbumModal(+c.dataset.num));
@@ -654,8 +753,6 @@ function wire() {
   syncPair("rateRange", "rateNum");
   syncPair("revRange", "revNum");
 
-  const manual = document.getElementById("manualNum");
-  if (manual) manual.onkeydown = (e) => { if (e.key === "Enter") document.getElementById("manualBtn").click(); };
 }
 
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });

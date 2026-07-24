@@ -171,26 +171,14 @@ input[type="range"].unset { opacity: 0.4; }
 .spin-stage { text-align: center; padding: 12px 0 4px; }
 .big-spin { margin: 6px 0 14px; font-size: 1.1rem; padding: 14px 34px; }
 
-/* Slot-machine cover reel */
-.reel {
+/* Cover-shuffle spin: one square window, covers flick through it */
+.flash-box {
   width: min(320px, 75vw); height: min(320px, 75vw);
   margin: 6px auto 10px; border-radius: 14px; overflow: hidden;
   box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
-  position: relative;
 }
-.reel::after { /* soft vignette at the top and bottom edges, like a real slot window */
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  box-shadow: inset 0 18px 24px -14px rgba(0, 0, 0, 0.7), inset 0 -18px 24px -14px rgba(0, 0, 0, 0.7);
-  border-radius: 14px;
-}
-.reel-strip {
-  display: flex; flex-direction: column;
-  transition: transform 2.6s cubic-bezier(0.12, 0.75, 0.2, 1);
-  will-change: transform;
-}
-.reel-cover {
-  width: 100%; aspect-ratio: 1; flex-shrink: 0; object-fit: cover; display: block;
-}
+.flash-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.flash-box.flash-final { animation: pop 0.4s ease both; }
 
 /* ── Album reveal / rating ── */
 .reveal { display: flex; flex-direction: column; align-items: center; gap: 14px; }
@@ -346,7 +334,30 @@ div.modal-cover { display: flex; }
 .stat .sl { color: var(--muted); font-size: 0.72rem; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
 .stats-h { margin: 18px 0 8px; font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
 
-.backup-row { display: flex; gap: 10px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+.share-row { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+
+/* ── Owner tools menu (opens from the 🔓 button) ── */
+#ownerMenu {
+  position: fixed; top: 60px; right: 12px; z-index: 90;
+  width: min(280px, calc(100vw - 24px));
+  background: rgba(16, 16, 24, 0.92);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  border: 1px solid var(--glass-border); border-radius: 14px;
+  padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  animation: rise 0.25s ease both;
+}
+.om-title { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.om-row { display: flex; gap: 8px; }
+.om-row input { width: 84px; }
+.om-row .secondary { flex: 1; }
+.om-full { width: 100%; }
+.om-note { font-size: 0.8rem; color: var(--accent); line-height: 1.4; }
+.om-note.om-muted { color: var(--muted); }
+.om-x {
+  background: none; border: none; color: var(--muted);
+  text-decoration: underline; cursor: pointer; font-size: 0.75rem; padding: 0;
+}
 
 .rev-del {
   background: none; border: none; color: var(--muted); cursor: pointer;
